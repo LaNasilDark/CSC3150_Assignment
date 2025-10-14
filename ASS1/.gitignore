@@ -1,0 +1,79 @@
+# Compiled binary files
+# Ignore all executable files generated from C source files
+
+# Program1 executables
+source/program1/abort
+source/program1/alarm
+source/program1/bus
+source/program1/floating
+source/program1/hangup
+source/program1/illegal_instr
+source/program1/interrupt
+source/program1/kill
+source/program1/normal
+source/program1/pipe
+source/program1/program1
+source/program1/quit
+source/program1/segment_fault
+source/program1/stop
+source/program1/terminate
+source/program1/trap
+
+# Program2 kernel module files
+source/program2/*.ko
+source/program2/*.o
+source/program2/*.mod
+source/program2/*.mod.c
+source/program2/Module.symvers
+source/program2/modules.order
+source/program2/.*.cmd
+source/program2/test
+source/program2/program2_ref.c
+source/program2/program2_copy.c
+# General patterns for C/C++ compilation
+*.o
+*.obj
+*.exe
+*.out
+*.a
+*.so
+*.dylib
+
+# Kernel module compilation files
+*.ko
+*.mod
+*.mod.c
+Module.symvers
+modules.order
+.*.cmd
+
+# Debug files
+*.dSYM/
+*.pdb
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+image
+*.md
+.DS_Store
