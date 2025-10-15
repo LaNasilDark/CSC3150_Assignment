@@ -1,1 +1,3 @@
 *.zip
+/ASS2/source/hw2_ref.cpp
+/ASS2/source/*.out
