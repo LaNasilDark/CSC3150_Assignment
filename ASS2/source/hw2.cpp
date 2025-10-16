@@ -29,6 +29,7 @@ char map[ROW][COLUMN + 1]; // why is it +1?
 
 pthread_mutex_t mutex;  // mutex for protecting shared resources
 int stop_game = 0;      // game control flag
+int gold_collected = 0; // number of gold pieces collected
 
 // Position structure
 struct Position {
@@ -36,6 +37,7 @@ struct Position {
 };
 
 struct Position wall[NUM_OF_WALL];  // wall positions
+struct Position gold[NUM_OF_GOLD];  // gold positions
 
 /* functions */
 int kbhit(void);
@@ -44,6 +46,10 @@ void init_walls(void);
 void move_wall(int index, int direction);
 void *wall_move(void *arg);
 void *auto_refresh(void *arg);
+void *player_move(void *arg);
+void init_gold(void);
+void move_gold_logic(int index);
+void *gold_move(void *arg);
 
 /* Determine a keyboard is hit or not.
  * If yes, return 1. If not, return 0. */
@@ -100,6 +106,21 @@ void init_walls(void)
     }
 }
 
+/* initialize gold */
+void init_gold(void)
+{
+    int gold_rows[NUM_OF_GOLD] = {1, 3, 5, 11, 13, 15};
+    
+    for (int i = 0; i < NUM_OF_GOLD; i++)
+    {
+        gold[i].x = gold_rows[i];
+        gold[i].y = rand() % (COLUMN - 2) + 1;
+        
+        // draw gold on the map
+        map[gold[i].x][gold[i].y] = GOLD;
+    }
+}
+
 /* wall movement logic */
 void move_wall(int index, int direction)
 {
@@ -151,7 +172,7 @@ void move_wall(int index, int direction)
         {
             stop_game = 1;
             printf("\033[H\033[2J");
-            printf("You lose the game!\n");
+            printf("You lose the game!!\n");
             return;
         }
         
@@ -193,6 +214,162 @@ void *auto_refresh(void *arg)
     pthread_exit(NULL);
 }
 
+/* player movement thread */
+void *player_move(void *arg)
+{
+    while (!stop_game)
+    {
+        if (kbhit())
+        {
+            char dir = getchar();
+            
+            pthread_mutex_lock(&mutex);
+            
+            // clear old player position
+            map[player_x][player_y] = ' ';
+            
+            // check if 'q' is pressed to exit
+            if (dir == 'q' || dir == 'Q')
+            {
+                stop_game = 1;
+                printf("\033[H\033[2J");
+                printf("You exit the game.\n");
+                pthread_mutex_unlock(&mutex);
+                break;
+            }
+            
+            // update position based on WASD
+            if ((dir == 'w' || dir == 'W') && player_x > 1)
+                player_x--;
+            if ((dir == 's' || dir == 'S') && player_x < ROW - 2)
+                player_x++;
+            if ((dir == 'a' || dir == 'A') && player_y > 1)
+                player_y--;
+            if ((dir == 'd' || dir == 'D') && player_y < COLUMN - 2)
+                player_y++;
+            
+            // collision detection with walls
+            if (map[player_x][player_y] == WALL)
+            {
+                map[player_x][player_y] = PLAYER;  // show player embedded in wall
+                stop_game = 1;
+                printf("\033[H\033[2J");
+                printf("You lose the game!\n");
+                pthread_mutex_unlock(&mutex);
+                break;
+            }
+            
+            // check if player collected gold
+            for (int i = 0; i < NUM_OF_GOLD; i++)
+            {
+                if (player_x == gold[i].x && player_y == gold[i].y)
+                {
+                    gold_collected++;
+                    gold[i].x = -1;  // mark gold as collected
+                    gold[i].y = -1;
+                    
+                    // check if all gold collected
+                    if (gold_collected == NUM_OF_GOLD)
+                    {
+                        stop_game = 1;
+                        printf("\033[H\033[2J");
+                        printf("You win the game!!\n");
+                        pthread_mutex_unlock(&mutex);
+                        break;
+                    }
+                }
+            }
+            
+            if (stop_game)
+            {
+                break;
+            }
+            
+            // update player's new position
+            map[player_x][player_y] = PLAYER;
+            
+            pthread_mutex_unlock(&mutex);
+        }
+        
+        usleep(10000);  // 10ms delay to prevent high CPU usage
+    }
+    
+    pthread_exit(NULL);
+}
+
+/* gold movement logic */
+void move_gold_logic(int index)
+{
+    static int direction[NUM_OF_GOLD] = {0};
+    
+    // initialize random direction for each gold
+    if (direction[index] == 0)
+    {
+        direction[index] = (rand() % 2 == 0) ? 1 : -1;
+    }
+    
+    // if gold is already collected, skip
+    if (gold[index].x == -1)
+        return;
+    
+    // clear current gold position
+    if (map[gold[index].x][gold[index].y] == GOLD)
+    {
+        map[gold[index].x][gold[index].y] = ' ';
+    }
+    
+    // update gold position
+    gold[index].y += direction[index];
+    
+    // wrap around handling
+    if (gold[index].y < 1)
+    {
+        gold[index].y = COLUMN - 2;
+    }
+    else if (gold[index].y >= COLUMN - 1)
+    {
+        gold[index].y = 1;
+    }
+    
+    // check if gold moves to player's position
+    if (gold[index].x == player_x && gold[index].y == player_y)
+    {
+        gold_collected++;
+        gold[index].x = -1;  // mark as collected
+        gold[index].y = -1;
+        
+        // check if all gold collected
+        if (gold_collected == NUM_OF_GOLD)
+        {
+            stop_game = 1;
+            printf("\033[H\033[2J");
+            printf("You win the game!\n");
+            return;
+        }
+    }
+    else
+    {
+        // draw gold at new position
+        map[gold[index].x][gold[index].y] = GOLD;
+    }
+}
+
+/* gold movement thread */
+void *gold_move(void *arg)
+{
+    long index = (long)arg;
+    
+    while (!stop_game)
+    {
+        pthread_mutex_lock(&mutex);
+        move_gold_logic(index);
+        pthread_mutex_unlock(&mutex);
+        usleep(100000);  // 100ms delay
+    }
+    
+    pthread_exit(NULL);
+}
+
 /* main function */
 int main(int argc, char *argv[])
 {
@@ -229,9 +406,16 @@ int main(int argc, char *argv[])
 
     // initialize walls
     init_walls();
+    
+    // initialize gold
+    init_gold();
 
     // initialize mutex
     pthread_mutex_init(&mutex, NULL);
+
+    // create player movement thread
+    pthread_t player_thread;
+    pthread_create(&player_thread, NULL, player_move, NULL);
 
     // create wall threads
     pthread_t wall_threads[NUM_OF_WALL];
@@ -239,19 +423,31 @@ int main(int argc, char *argv[])
     {
         pthread_create(&wall_threads[i], NULL, wall_move, (void *)i);
     }
+    
+    // create gold threads
+    pthread_t gold_threads[NUM_OF_GOLD];
+    for (long i = 0; i < NUM_OF_GOLD; i++)
+    {
+        pthread_create(&gold_threads[i], NULL, gold_move, (void *)i);
+    }
 
     // create auto refresh thread
     pthread_t refresh_thread;
     pthread_create(&refresh_thread, NULL, auto_refresh, NULL);
 
-    // wait for game to end (for now, just wait a bit to see walls move)
-    sleep(10);
-    stop_game = 1;
+    // wait for player thread to finish (game ends when player quits or loses)
+    pthread_join(player_thread, NULL);
 
     // wait for all wall threads to finish
     for (int i = 0; i < NUM_OF_WALL; i++)
     {
         pthread_join(wall_threads[i], NULL);
+    }
+    
+    // wait for all gold threads to finish
+    for (int i = 0; i < NUM_OF_GOLD; i++)
+    {
+        pthread_join(gold_threads[i], NULL);
     }
 
     // wait for refresh thread
