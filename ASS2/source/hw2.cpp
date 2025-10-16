@@ -6,6 +6,7 @@
 #include <time.h>
 #include <termios.h>
 #include <fcntl.h>
+#include <sys/select.h>
 
 /* const numbers define */
 #define ROW 17
@@ -31,6 +32,8 @@ pthread_mutex_t mutex;  // mutex for protecting shared resources
 int stop_game = 0;      // game control flag
 int gold_collected = 0; // number of gold pieces collected
 
+struct termios orig_termios;  // save original terminal settings
+
 // Position structure
 struct Position {
     int x, y;
@@ -50,29 +53,54 @@ void *player_move(void *arg);
 void init_gold(void);
 void move_gold_logic(int index);
 void *gold_move(void *arg);
+void enable_raw_mode(void);
+void disable_raw_mode(void);
+
+/* Enable raw mode (disable echo and canonical mode) */
+void enable_raw_mode(void)
+{
+    struct termios raw;
+    
+    tcgetattr(STDIN_FILENO, &orig_termios);  // save original settings
+    raw = orig_termios;
+    
+    raw.c_lflag &= ~(ICANON | ECHO);  // disable canonical mode and echo
+    raw.c_cc[VMIN] = 0;   // non-blocking read
+    raw.c_cc[VTIME] = 0;  // no timeout
+    
+    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+    
+    // set non-blocking mode
+    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK);
+}
+
+/* Disable raw mode (restore original terminal settings) */
+void disable_raw_mode(void)
+{
+    tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
+    
+    // restore blocking mode
+    int flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, flags & ~O_NONBLOCK);
+}
 
 /* Determine a keyboard is hit or not.
  * If yes, return 1. If not, return 0. */
+
+// NOTE that the  original template function kbhit() will ocationally change terminal settings every time it is called. 
+// Thus casuing flickering letters on the screen. The following implementation uses select() to check keyboard input without changing terminal settings.
+
 int kbhit(void)
 {
-    struct termios oldt, newt;
-    int ch;
-    int oldf;
-    tcgetattr(STDIN_FILENO, &oldt);
-    newt = oldt;
-    newt.c_lflag &= ~(ICANON | ECHO);
-    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-    oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
-    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
-    ch = getchar();
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
-    fcntl(STDIN_FILENO, F_SETFL, oldf);
-    if (ch != EOF)
-    {
-        ungetc(ch, stdin);
-        return 1;
-    }
-    return 0;
+    struct timeval tv;
+    fd_set fds;
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+    return FD_ISSET(STDIN_FILENO, &fds);
 }
 
 /* print the map */
@@ -254,7 +282,7 @@ void *player_move(void *arg)
                 map[player_x][player_y] = PLAYER;  // show player embedded in wall
                 stop_game = 1;
                 printf("\033[H\033[2J");
-                printf("You lose the game!\n");
+                printf("You lose the game!!\n");
                 pthread_mutex_unlock(&mutex);
                 break;
             }
@@ -343,7 +371,7 @@ void move_gold_logic(int index)
         {
             stop_game = 1;
             printf("\033[H\033[2J");
-            printf("You win the game!\n");
+            printf("You win the game!!\n");
             return;
         }
     }
@@ -410,6 +438,9 @@ int main(int argc, char *argv[])
     // initialize gold
     init_gold();
 
+    // enable raw mode (disable echo, enable non-blocking input)
+    enable_raw_mode();
+
     // initialize mutex
     pthread_mutex_init(&mutex, NULL);
 
@@ -455,6 +486,9 @@ int main(int argc, char *argv[])
 
     // cleanup
     pthread_mutex_destroy(&mutex);
+    
+    // restore terminal settings
+    disable_raw_mode();
 
     return 0;
 }
